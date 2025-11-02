@@ -250,6 +250,22 @@ export const createOrder = async (req, res) => {
               }
             }
           });
+
+          // Send push notification
+          try {
+            const { sendToUser } = await import('../services/pushService.js');
+            await sendToUser(riderProfile.userId, {
+              title: 'New Order Assigned',
+              message: `Order #${order.id.slice(-4)} has been assigned to you`,
+              data: {
+                orderId: order.id,
+                type: 'ORDER_ASSIGNED'
+              },
+              clickAction: `/rider/orders/${order.id}`
+            });
+          } catch (pushErr) {
+            console.error('Failed to send push notification:', pushErr);
+          }
         }
       } catch (notifyErr) {
         console.error('Failed to create rider notification:', notifyErr);
@@ -566,12 +582,15 @@ export const deliverOrder = async (req, res) => {
         select: { id: true }
       });
 
+      const adminUserIds = [];
+
       for (const adminUser of adminUsers) {
+        adminUserIds.push(adminUser.id);
         await prisma.notification.create({
           data: {
             userId: adminUser.id,
             title: 'Order Delivered',
-            message: `Order #${id} has been delivered by ${updated.rider?.name || 'Rider'}`,
+            message: `Order #${id.slice(-4)} has been delivered by ${updated.rider?.name || 'Rider'}`,
             type: 'ORDER_DELIVERED',
             data: {
               orderId: id,
@@ -590,6 +609,22 @@ export const deliverOrder = async (req, res) => {
             }
           }
         });
+      }
+
+      // Send push notification to all admins
+      try {
+        const { sendToMultipleUsers } = await import('../services/pushService.js');
+        await sendToMultipleUsers(adminUserIds, {
+          title: 'Order Delivered',
+          message: `Order #${id.slice(-4)} has been delivered`,
+          data: {
+            orderId: id,
+            type: 'ORDER_DELIVERED'
+          },
+          clickAction: `/admin/orders/${id}`
+        });
+      } catch (pushErr) {
+        console.error('Failed to send push notification:', pushErr);
       }
     } catch (notifyErr) {
       console.error('Failed to create admin notification:', notifyErr);
