@@ -8,6 +8,10 @@ export const subscribe = async (req, res) => {
     const userId = req.user.id;
     const { token, userAgent, deviceType, platform } = req.body;
 
+    console.log('📥 Received subscription request for user:', userId);
+    console.log('🎟️ Token length:', token ? token.length : 0);
+    console.log('📱 Device:', { deviceType, platform });
+
     if (!token) {
       return res.status(400).json({
         success: false,
