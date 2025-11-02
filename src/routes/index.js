@@ -9,6 +9,9 @@ import notificationRoutes from './notifications.js';
 import reportsRoutes from './reports.js';
 import dailyClosingsRoutes from './dailyClosings.js';
 import pushRoutes from './push.js';
+import adminRoutes from './admin.js';
+import companySetupRoutes from './companySetup.js';
+import bottleCategoriesRoutes from './bottleCategories.js';
 
 const router = express.Router();
 
@@ -23,5 +26,8 @@ router.use('/payments', paymentRoutes);
 router.use('/reports', reportsRoutes);
 router.use('/daily-closings', dailyClosingsRoutes);
 router.use('/push', pushRoutes);
+router.use('/admin', adminRoutes);
+router.use('/company-setup', companySetupRoutes);
+router.use('/bottle-categories', bottleCategoriesRoutes);
 
 export default router;
