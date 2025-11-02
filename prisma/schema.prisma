@@ -1,0 +1,216 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id           String        @id @default(cuid())
+  email        String        @unique
+  phone        String?       @unique
+  password     String
+  role         UserRole      @default(ADMIN)
+  isActive     Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  adminProfile AdminProfile?
+  riderProfile RiderProfile?
+
+  @@map("users")
+}
+
+model AdminProfile {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  name      String
+  company   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("admin_profiles")
+}
+
+model RiderProfile {
+  id                String               @id @default(cuid())
+  userId            String               @unique
+  name              String
+  phone             String
+  isActive          Boolean              @default(true)
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  orders            Order[]
+  user              User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dailyCollections  DailyClosingRider[]
+
+  @@map("rider_profiles")
+}
+
+model Customer {
+  id              String   @id @default(cuid())
+  name            String
+  phone           String   @unique
+  houseNo         String?
+  streetNo        String?
+  area            String?
+  city            String?
+  isActive        Boolean  @default(true)
+  currentBalance  Decimal  @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  whatsapp        String?
+  bottleCount     Int      @default(0)
+  avgDaysToRefill Int?
+  orders          Order[]
+
+  @@map("customers")
+}
+
+model Order {
+  id                 String        @id @default(cuid())
+  customerId         String
+  riderId            String?
+  status             OrderStatus   @default(PENDING)
+  priority           Priority      @default(NORMAL)
+  notes              String?
+  totalAmount        Decimal
+  paidAmount         Decimal       @default(0)
+  paymentStatus      PaymentStatus @default(NOT_PAID)
+  paymentMethod      PaymentMethod @default(CASH)
+  paymentNotes       String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  deliveredAt        DateTime?
+  numberOfBottles    Int           @default(1)
+  currentOrderAmount Decimal       @default(0)
+  customerBalance    Decimal       @default(0)
+  payable            Decimal       @default(0)
+  receivable         Decimal       @default(0)
+  orderType          OrderType     @default(DELIVERY)
+  customer           Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  rider              RiderProfile? @relation(fields: [riderId], references: [id])
+
+  @@map("orders")
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String?
+  title     String
+  message   String
+  type      NotificationType
+  isRead    Boolean          @default(false)
+  data      Json?
+  createdAt DateTime         @default(now())
+
+  @@map("notifications")
+}
+
+model DailyClosing {
+  id                       String                     @id @default(cuid())
+  date                     DateTime                   @unique
+  customerPayable          Decimal                    @default(0)
+  customerReceivable       Decimal                    @default(0)
+  totalPaidAmount          Decimal                    @default(0)
+  totalCurrentOrderAmount  Decimal                    @default(0)
+  walkInAmount             Decimal                    @default(0)
+  clearBillAmount          Decimal                    @default(0)
+  balanceClearedToday      Decimal                    @default(0)
+  totalBottles             Int                        @default(0)
+  totalOrders              Int                        @default(0)
+  createdAt                DateTime                   @default(now())
+  updatedAt                DateTime                   @updatedAt
+  riderCollections         DailyClosingRider[]
+  paymentMethods           DailyClosingPayment[]
+
+  @@map("daily_closings")
+}
+
+model DailyClosingRider {
+  id              String       @id @default(cuid())
+  dailyClosingId  String
+  riderId         String
+  amount          Decimal      @default(0)
+  ordersCount     Int          @default(0)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  dailyClosing    DailyClosing @relation(fields: [dailyClosingId], references: [id], onDelete: Cascade)
+  rider           RiderProfile @relation(fields: [riderId], references: [id])
+
+  @@unique([dailyClosingId, riderId])
+  @@map("daily_closing_riders")
+}
+
+model DailyClosingPayment {
+  id              String       @id @default(cuid())
+  dailyClosingId  String
+  paymentMethod   PaymentMethod
+  amount          Decimal      @default(0)
+  ordersCount     Int          @default(0)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  dailyClosing    DailyClosing @relation(fields: [dailyClosingId], references: [id], onDelete: Cascade)
+
+  @@unique([dailyClosingId, paymentMethod])
+  @@map("daily_closing_payments")
+}
+
+enum UserRole {
+  ADMIN
+  RIDER
+  CUSTOMER
+}
+
+enum OrderStatus {
+  PENDING
+  ASSIGNED
+  IN_PROGRESS
+  DELIVERED
+  CANCELLED
+  CREATED
+  PAID
+  COMPLETED
+}
+
+enum OrderType {
+  WALKIN
+  DELIVERY
+  CLEARBILL
+}
+
+enum Priority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum PaymentStatus {
+  PAID
+  NOT_PAID
+  OVERPAID
+  PARTIAL
+  REFUND
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  BANK_TRANSFER
+  JAZZCASH
+  EASYPAISA
+  NAYA_PAY
+  SADAPAY
+}
+
+enum NotificationType {
+  ORDER_ASSIGNED
+  ORDER_DELIVERED
+  PAYMENT_RECEIVED
+  PAYMENT_OVERDUE
+  SYSTEM_UPDATE
+}
