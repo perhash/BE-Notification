@@ -3,6 +3,76 @@ import { getPktDateRangeUtc, getPktDayStartUtc, getPktDayEndUtc, formatPktDate }
 
 const prisma = new PrismaClient();
 
+// Helper function to format customer full address
+const formatCustomerAddress = (customer) => {
+  const addressParts = [
+    customer.houseNo,
+    customer.streetNo,
+    customer.area,
+    customer.city
+  ].filter(Boolean);
+  
+  return addressParts.join(' ') || 'Address not provided';
+};
+
+// Helper function to format bottle text (singular/plural)
+const formatBottleText = (count) => {
+  return count === 1 ? `${count} bottle` : `${count} bottles`;
+};
+
+// Helper function to format delivery message for order assigned
+const formatOrderAssignedMessage = (customer, numberOfBottles) => {
+  const address = formatCustomerAddress(customer);
+  const bottleText = formatBottleText(numberOfBottles);
+  return `Order for ${customer.name}, deliver ${bottleText} to ${address}`;
+};
+
+// Helper function to format order delivered message with payment details
+const formatOrderDeliveredMessage = (customer, totalAmount, paidAmount, remaining) => {
+  const total = totalAmount.toFixed(0);
+  const paid = paidAmount.toFixed(0);
+  const remainingAmount = Math.abs(remaining).toFixed(0);
+  
+  if (remaining === 0) {
+    // Fully paid
+    return `Order delivered to ${customer.name}. Total: RS ${total}, Received: RS ${paid}, Fully paid.`;
+  } else if (remaining > 0) {
+    // Partial payment
+    return `Order delivered to ${customer.name}. Total: RS ${total}, Received: RS ${paid}, Remaining: RS ${remainingAmount}`;
+  } else {
+    // Overpaid
+    return `Order delivered to ${customer.name}. Total: RS ${total}, Received: RS ${paid}, Overpaid: RS ${remainingAmount}`;
+  }
+};
+
+// Helper function to format reassignment message for old rider
+const formatReassignOldRiderMessage = (customer, numberOfBottles, newRiderName) => {
+  const address = formatCustomerAddress(customer);
+  const bottleText = formatBottleText(numberOfBottles);
+  return `This order has been reassigned to ${newRiderName}. Order for ${customer.name}, ${bottleText} to ${address}. Do not deliver.`;
+};
+
+// Helper function to format reassignment message for new rider
+const formatReassignNewRiderMessage = (customer, numberOfBottles, oldRiderName) => {
+  const address = formatCustomerAddress(customer);
+  const bottleText = formatBottleText(numberOfBottles);
+  return `This order has been reassigned to you from ${oldRiderName}. Order for ${customer.name}, deliver ${bottleText} to ${address}.`;
+};
+
+// Helper function to format cancellation message for rider
+const formatCancelByAdminMessage = (customer, numberOfBottles) => {
+  const address = formatCustomerAddress(customer);
+  const bottleText = formatBottleText(numberOfBottles);
+  return `Order cancelled by admin. Order for ${customer.name}, ${bottleText} to ${address}.`;
+};
+
+// Helper function to format cancellation message for admin
+const formatCancelByRiderMessage = (customer, numberOfBottles, riderName) => {
+  const address = formatCustomerAddress(customer);
+  const bottleText = formatBottleText(numberOfBottles);
+  return `Order cancelled by rider ${riderName}. Order for ${customer.name}, ${bottleText} to ${address}.`;
+};
+
 // Get all orders
 export const getAllOrders = async (req, res) => {
   try {
@@ -231,11 +301,19 @@ export const createOrder = async (req, res) => {
         });
 
         if (riderProfile?.userId) {
+          // Get customer details with full address
+          const customerWithAddress = await prisma.customer.findUnique({
+            where: { id: order.customer.id },
+            select: { name: true, phone: true, houseNo: true, streetNo: true, area: true, city: true }
+          });
+
+          const notificationMessage = formatOrderAssignedMessage(customerWithAddress, order.numberOfBottles);
+
           await prisma.notification.create({
             data: {
               userId: riderProfile.userId,
-              title: 'New order assigned',
-              message: `An order has been assigned to you`,
+              title: 'New Order Assigned',
+              message: notificationMessage,
               type: 'ORDER_ASSIGNED',
               data: {
                 orderId: order.id,
@@ -253,22 +331,24 @@ export const createOrder = async (req, res) => {
 
           // Send push notification
           try {
+            console.log('[orderController] Creating order - sending push to rider:', riderProfile.userId);
             const { sendToUser } = await import('../services/pushService.js');
             await sendToUser(riderProfile.userId, {
               title: 'New Order Assigned',
-              message: `Order #${order.id.slice(-4)} has been assigned to you`,
+              message: notificationMessage,
               data: {
                 orderId: order.id,
                 type: 'ORDER_ASSIGNED'
               },
               clickAction: `/rider/orders/${order.id}`
             });
+            console.log('[orderController] Push notification sent successfully for order:', order.id);
           } catch (pushErr) {
-            console.error('Failed to send push notification:', pushErr);
+            console.error('[orderController] Failed to send push notification:', pushErr);
           }
         }
       } catch (notifyErr) {
-        console.error('Failed to create rider notification:', notifyErr);
+        console.error('[orderController] Failed to create rider notification:', notifyErr);
       }
     }
 
@@ -337,13 +417,37 @@ export const updateOrderStatus = async (req, res) => {
     // If rider is being changed (reassigned), send notifications
     if (riderId && oldRiderId && riderId !== oldRiderId) {
       try {
-        // Notify old rider that order is unassigned
-        if (oldRiderUserId) {
+        console.log('[orderController] Order reassigned - preparing notifications');
+        
+        // Get customer details with full address
+        const customerWithAddress = await prisma.customer.findUnique({
+          where: { id: currentOrder.customerId },
+          select: { name: true, phone: true, houseNo: true, streetNo: true, area: true, city: true }
+        });
+
+        // Get old and new rider names
+        const oldRiderProfile = oldRiderId ? await prisma.riderProfile.findUnique({
+          where: { id: oldRiderId },
+          select: { name: true }
+        }) : null;
+
+        const newRiderProfile = order.rider ? {
+          name: order.rider.name
+        } : null;
+
+        // Notify old rider that order is reassigned
+        if (oldRiderUserId && newRiderProfile) {
+          const oldRiderMessage = formatReassignOldRiderMessage(
+            customerWithAddress,
+            order.numberOfBottles,
+            newRiderProfile.name
+          );
+
           await prisma.notification.create({
             data: {
               userId: oldRiderUserId,
-              title: 'Order Unassigned',
-              message: `Order #${id.slice(-4)} has been unassigned from you`,
+              title: 'Order Re-assigned',
+              message: oldRiderMessage,
               type: 'ORDER_UNASSIGNED',
               data: {
                 orderId: id,
@@ -355,15 +459,38 @@ export const updateOrderStatus = async (req, res) => {
               }
             }
           });
+
+          // Send push notification to old rider
+          try {
+            console.log('[orderController] Sending push to old rider:', oldRiderUserId);
+            const { sendToUser } = await import('../services/pushService.js');
+            await sendToUser(oldRiderUserId, {
+              title: 'Order Re-assigned',
+              message: oldRiderMessage,
+              data: {
+                orderId: id,
+                type: 'ORDER_UNASSIGNED'
+              },
+              clickAction: `/rider/orders/${id}`
+            });
+          } catch (pushErr) {
+            console.error('[orderController] Failed to send push to old rider:', pushErr);
+          }
         }
 
         // Notify new rider that order is assigned
-        if (order.rider?.user?.id) {
+        if (order.rider?.user?.id && oldRiderProfile) {
+          const newRiderMessage = formatReassignNewRiderMessage(
+            customerWithAddress,
+            order.numberOfBottles,
+            oldRiderProfile.name
+          );
+
           await prisma.notification.create({
             data: {
               userId: order.rider.user.id,
-              title: 'Order Assigned',
-              message: `Order #${id.slice(-4)} has been assigned to you`,
+              title: 'New Order Assigned',
+              message: newRiderMessage,
               type: 'ORDER_ASSIGNED',
               data: {
                 orderId: id,
@@ -378,20 +505,45 @@ export const updateOrderStatus = async (req, res) => {
               }
             }
           });
+
+          // Send push notification to new rider
+          try {
+            console.log('[orderController] Sending push to new rider:', order.rider.user.id);
+            const { sendToUser } = await import('../services/pushService.js');
+            await sendToUser(order.rider.user.id, {
+              title: 'New Order Assigned',
+              message: newRiderMessage,
+              data: {
+                orderId: id,
+                type: 'ORDER_ASSIGNED'
+              },
+              clickAction: `/rider/orders/${id}`
+            });
+          } catch (pushErr) {
+            console.error('[orderController] Failed to send push to new rider:', pushErr);
+          }
         }
       } catch (notifyErr) {
-        console.error('Failed to create rider notifications:', notifyErr);
+        console.error('[orderController] Failed to create rider notifications:', notifyErr);
         // Continue even if notifications fail
       }
     } else if (riderId && !oldRiderId) {
       // First time assignment - notify new rider
       try {
         if (order.rider?.user?.id) {
+          // Get customer details with full address
+          const customerWithAddress = await prisma.customer.findUnique({
+            where: { id: order.customerId },
+            select: { name: true, phone: true, houseNo: true, streetNo: true, area: true, city: true }
+          });
+
+          const notificationMessage = formatOrderAssignedMessage(customerWithAddress, order.numberOfBottles);
+
           await prisma.notification.create({
             data: {
               userId: order.rider.user.id,
               title: 'New Order Assigned',
-              message: `Order #${id.slice(-4)} has been assigned to you`,
+              message: notificationMessage,
               type: 'ORDER_ASSIGNED',
               data: {
                 orderId: id,
@@ -406,9 +558,26 @@ export const updateOrderStatus = async (req, res) => {
               }
             }
           });
+
+          // Send push notification
+          try {
+            console.log('[orderController] First assignment - sending push to rider:', order.rider.user.id);
+            const { sendToUser } = await import('../services/pushService.js');
+            await sendToUser(order.rider.user.id, {
+              title: 'New Order Assigned',
+              message: notificationMessage,
+              data: {
+                orderId: id,
+                type: 'ORDER_ASSIGNED'
+              },
+              clickAction: `/rider/orders/${id}`
+            });
+          } catch (pushErr) {
+            console.error('[orderController] Failed to send push notification:', pushErr);
+          }
         }
       } catch (notifyErr) {
-        console.error('Failed to create rider notification:', notifyErr);
+        console.error('[orderController] Failed to create rider notification:', notifyErr);
       }
     }
 
@@ -577,10 +746,23 @@ export const deliverOrder = async (req, res) => {
 
     // Create notification for all admin users
     try {
+      console.log('[orderController] Delivering order - preparing notifications for admins');
+      
       const adminUsers = await prisma.user.findMany({
         where: { role: 'ADMIN', isActive: true },
         select: { id: true }
       });
+
+      console.log('[orderController] Found', adminUsers.length, 'admin user(s)');
+
+      // Get customer details with full address
+      const customerWithAddress = await prisma.customer.findUnique({
+        where: { id: order.customerId },
+        select: { name: true, phone: true, houseNo: true, streetNo: true, area: true, city: true }
+      });
+
+      const notificationMessage = formatOrderDeliveredMessage(customerWithAddress, total, paid, remaining);
+      console.log('[orderController] Notification message:', notificationMessage);
 
       const adminUserIds = [];
 
@@ -590,7 +772,7 @@ export const deliverOrder = async (req, res) => {
           data: {
             userId: adminUser.id,
             title: 'Order Delivered',
-            message: `Order #${id.slice(-4)} has been delivered by ${updated.rider?.name || 'Rider'}`,
+            message: notificationMessage,
             type: 'ORDER_DELIVERED',
             data: {
               orderId: id,
@@ -611,23 +793,27 @@ export const deliverOrder = async (req, res) => {
         });
       }
 
+      console.log('[orderController] Created', adminUserIds.length, 'DB notification(s)');
+
       // Send push notification to all admins
       try {
+        console.log('[orderController] Sending push notifications to', adminUserIds.length, 'admin(s)');
         const { sendToMultipleUsers } = await import('../services/pushService.js');
         await sendToMultipleUsers(adminUserIds, {
           title: 'Order Delivered',
-          message: `Order #${id.slice(-4)} has been delivered`,
+          message: notificationMessage,
           data: {
             orderId: id,
             type: 'ORDER_DELIVERED'
           },
           clickAction: `/admin/orders/${id}`
         });
+        console.log('[orderController] Push notifications sent successfully for order:', id);
       } catch (pushErr) {
-        console.error('Failed to send push notification:', pushErr);
+        console.error('[orderController] Failed to send push notification:', pushErr);
       }
     } catch (notifyErr) {
-      console.error('Failed to create admin notification:', notifyErr);
+      console.error('[orderController] Failed to create admin notification:', notifyErr);
     }
 
     return res.json({ success: true, data: updated, message: 'Order delivered and balances updated' });
@@ -670,7 +856,13 @@ export const cancelOrder = async (req, res) => {
         },
         include: {
           customer: true,
-          rider: true
+          rider: {
+            include: {
+              user: {
+                select: { id: true }
+              }
+            }
+          }
         }
       });
 
@@ -682,6 +874,120 @@ export const cancelOrder = async (req, res) => {
 
       return updatedOrder;
     });
+
+    // Determine who cancelled the order (admin or rider)
+    const cancellerRole = req.user?.role || 'ADMIN'; // Default to ADMIN if not specified
+    
+    console.log('[orderController] Order cancelled by:', cancellerRole);
+
+    // Get customer details with full address
+    const customerWithAddress = await prisma.customer.findUnique({
+      where: { id: order.customerId },
+      select: { name: true, phone: true, houseNo: true, streetNo: true, area: true, city: true }
+    });
+
+    // Send notifications based on who cancelled
+    try {
+      if (cancellerRole === 'ADMIN') {
+        // Admin cancelled - notify rider
+        if (updated.rider?.user?.id) {
+          const riderMessage = formatCancelByAdminMessage(customerWithAddress, order.numberOfBottles);
+          
+          await prisma.notification.create({
+            data: {
+              userId: updated.rider.user.id,
+              title: 'Order Cancelled',
+              message: riderMessage,
+              type: 'ORDER_CANCELLED',
+              data: {
+                orderId: id,
+                customer: {
+                  id: order.customerId,
+                  name: updated.customer.name,
+                  phone: updated.customer.phone
+                }
+              }
+            }
+          });
+
+          // Send push notification to rider
+          try {
+            console.log('[orderController] Sending cancellation push to rider:', updated.rider.user.id);
+            const { sendToUser } = await import('../services/pushService.js');
+            await sendToUser(updated.rider.user.id, {
+              title: 'Order Cancelled',
+              message: riderMessage,
+              data: {
+                orderId: id,
+                type: 'ORDER_CANCELLED'
+              },
+              clickAction: `/rider/orders/${id}`
+            });
+          } catch (pushErr) {
+            console.error('[orderController] Failed to send cancellation push to rider:', pushErr);
+          }
+        }
+      } else if (cancellerRole === 'RIDER') {
+        // Rider cancelled - notify all admins
+        const adminUsers = await prisma.user.findMany({
+          where: { role: 'ADMIN', isActive: true },
+          select: { id: true }
+        });
+
+        if (adminUsers.length > 0 && updated.rider) {
+          const adminMessage = formatCancelByRiderMessage(
+            customerWithAddress,
+            order.numberOfBottles,
+            updated.rider.name
+          );
+
+          const adminUserIds = [];
+
+          for (const adminUser of adminUsers) {
+            adminUserIds.push(adminUser.id);
+            await prisma.notification.create({
+              data: {
+                userId: adminUser.id,
+                title: 'Rider Cancelled Order',
+                message: adminMessage,
+                type: 'ORDER_CANCELLED',
+                data: {
+                  orderId: id,
+                  customer: {
+                    id: order.customerId,
+                    name: updated.customer.name,
+                    phone: updated.customer.phone
+                  },
+                  rider: {
+                    id: updated.rider.id,
+                    name: updated.rider.name
+                  }
+                }
+              }
+            });
+          }
+
+          // Send push notification to all admins
+          try {
+            console.log('[orderController] Sending cancellation push to', adminUserIds.length, 'admin(s)');
+            const { sendToMultipleUsers } = await import('../services/pushService.js');
+            await sendToMultipleUsers(adminUserIds, {
+              title: 'Rider Cancelled Order',
+              message: adminMessage,
+              data: {
+                orderId: id,
+                type: 'ORDER_CANCELLED'
+              },
+              clickAction: `/admin/orders/${id}`
+            });
+          } catch (pushErr) {
+            console.error('[orderController] Failed to send cancellation push to admins:', pushErr);
+          }
+        }
+      }
+    } catch (notifyErr) {
+      console.error('[orderController] Failed to create cancellation notifications:', notifyErr);
+    }
 
     return res.json({ success: true, data: updated, message: 'Order cancelled and customer balance reverted' });
   } catch (error) {

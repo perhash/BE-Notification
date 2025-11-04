@@ -23,3 +23,4 @@ router.patch('/profile/password', updateAdminPassword);
 
 export default router;
 
+
