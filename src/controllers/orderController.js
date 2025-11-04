@@ -417,7 +417,13 @@ export const updateOrderStatus = async (req, res) => {
     // If rider is being changed (reassigned), send notifications
     if (riderId && oldRiderId && riderId !== oldRiderId) {
       try {
-        console.log('[orderController] Order reassigned - preparing notifications');
+        console.log('[orderController] ========== Order Reassignment ==========');
+        console.log('[orderController] Order ID:', id);
+        console.log('[orderController] Old Rider ID:', oldRiderId);
+        console.log('[orderController] Old Rider User ID:', oldRiderUserId);
+        console.log('[orderController] New Rider ID:', riderId);
+        console.log('[orderController] New Rider User ID:', order.rider?.user?.id || 'undefined');
+        console.log('[orderController] Preparing notifications for reassignment');
         
         // Get customer details with full address
         const customerWithAddress = await prisma.customer.findUnique({
@@ -878,7 +884,11 @@ export const cancelOrder = async (req, res) => {
     // Determine who cancelled the order (admin or rider)
     const cancellerRole = req.user?.role || 'ADMIN'; // Default to ADMIN if not specified
     
-    console.log('[orderController] Order cancelled by:', cancellerRole);
+    console.log('[orderController] ========== Order Cancellation ==========');
+    console.log('[orderController] Order ID:', id);
+    console.log('[orderController] Canceller User ID:', req.user?.id || 'undefined');
+    console.log('[orderController] Canceller Role:', cancellerRole);
+    console.log('[orderController] req.user:', req.user ? { id: req.user.id, role: req.user.role } : 'undefined');
 
     // Get customer details with full address
     const customerWithAddress = await prisma.customer.findUnique({

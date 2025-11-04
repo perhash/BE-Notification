@@ -1,7 +1,11 @@
 import express from 'express';
 import { getAllOrders, getOrderById, createOrder, updateOrderStatus, updateOrder, deliverOrder, cancelOrder, completeWalkInOrder, clearBill, amendOrder } from '../controllers/orderController.js';
+import { authenticateToken } from '../middleware/auth.js';
 
 const router = express.Router();
+
+// All order routes require authentication
+router.use(authenticateToken);
 
 // GET /api/orders
 router.get('/', getAllOrders);
