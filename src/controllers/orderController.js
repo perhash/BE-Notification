@@ -442,92 +442,114 @@ export const updateOrderStatus = async (req, res) => {
         } : null;
 
         // Notify old rider that order is reassigned
-        if (oldRiderUserId && newRiderProfile) {
+        if (oldRiderUserId) {
+          const newRiderName = newRiderProfile?.name || 'another rider';
           const oldRiderMessage = formatReassignOldRiderMessage(
             customerWithAddress,
             order.numberOfBottles,
-            newRiderProfile.name
+            newRiderName
           );
-
-          await prisma.notification.create({
-            data: {
-              userId: oldRiderUserId,
-              title: 'Order Re-assigned',
-              message: oldRiderMessage,
-              type: 'ORDER_UNASSIGNED',
+          console.log('[orderController] Creating DB notification for old rider:', oldRiderUserId);
+          
+          try {
+            await prisma.notification.create({
               data: {
-                orderId: id,
-                customer: {
-                  id: currentOrder.customerId,
-                  name: currentOrder.customer.name,
-                  phone: currentOrder.customer.phone
+                userId: oldRiderUserId,
+                title: 'Order Re-assigned',
+                message: oldRiderMessage,
+                type: 'ORDER_UNASSIGNED',
+                data: {
+                  orderId: id,
+                  customer: {
+                    id: currentOrder.customerId,
+                    name: currentOrder.customer.name,
+                    phone: currentOrder.customer.phone
+                  }
                 }
               }
-            }
-          });
-
-          // Send push notification to old rider
-          try {
-            console.log('[orderController] Sending push to old rider:', oldRiderUserId);
-            const { sendToUser } = await import('../services/pushService.js');
-            await sendToUser(oldRiderUserId, {
-              title: 'Order Re-assigned',
-              message: oldRiderMessage,
-              data: {
-                orderId: id,
-                type: 'ORDER_UNASSIGNED'
-              },
-              clickAction: `/rider/orders/${id}`
             });
-          } catch (pushErr) {
-            console.error('[orderController] Failed to send push to old rider:', pushErr);
+            console.log('[orderController] ✅ DB notification created for old rider');
+
+            // Send push notification to old rider
+            try {
+              console.log('[orderController] Sending push to old rider:', oldRiderUserId);
+              const { sendToUser } = await import('../services/pushService.js');
+              const result = await sendToUser(oldRiderUserId, {
+                title: 'Order Re-assigned',
+                message: oldRiderMessage,
+                data: {
+                  orderId: id,
+                  type: 'ORDER_UNASSIGNED'
+                },
+                clickAction: `/rider/orders/${id}`
+              });
+              console.log('[orderController] ✅ Push notification result for old rider:', result);
+            } catch (pushErr) {
+              console.error('[orderController] ❌ Failed to send push to old rider:', pushErr);
+              console.error('[orderController] Push error details:', pushErr.message, pushErr.stack);
+            }
+          } catch (dbErr) {
+            console.error('[orderController] ❌ Failed to create DB notification for old rider:', dbErr);
           }
+        } else {
+          console.log('[orderController] ⚠️ No old rider user ID found, skipping old rider notification');
         }
 
         // Notify new rider that order is assigned
-        if (order.rider?.user?.id && oldRiderProfile) {
+        if (order.rider?.user?.id) {
+          const oldRiderName = oldRiderProfile?.name || 'previous rider';
           const newRiderMessage = formatReassignNewRiderMessage(
             customerWithAddress,
             order.numberOfBottles,
-            oldRiderProfile.name
+            oldRiderName
           );
-
-          await prisma.notification.create({
-            data: {
-              userId: order.rider.user.id,
-              title: 'New Order Assigned',
-              message: newRiderMessage,
-              type: 'ORDER_ASSIGNED',
+          console.log('[orderController] Creating DB notification for new rider:', order.rider.user.id);
+          
+          try {
+            await prisma.notification.create({
               data: {
-                orderId: id,
-                priority: order.priority,
-                totalAmount: order.totalAmount,
-                numberOfBottles: order.numberOfBottles,
-                customer: {
-                  id: order.customerId,
-                  name: order.customer.name,
-                  phone: order.customer.phone
+                userId: order.rider.user.id,
+                title: 'New Order Assigned',
+                message: newRiderMessage,
+                type: 'ORDER_ASSIGNED',
+                data: {
+                  orderId: id,
+                  priority: order.priority,
+                  totalAmount: order.totalAmount,
+                  numberOfBottles: order.numberOfBottles,
+                  customer: {
+                    id: order.customerId,
+                    name: order.customer.name,
+                    phone: order.customer.phone
+                  }
                 }
               }
-            }
-          });
-
-          // Send push notification to new rider
-          try {
-            console.log('[orderController] Sending push to new rider:', order.rider.user.id);
-            const { sendToUser } = await import('../services/pushService.js');
-            await sendToUser(order.rider.user.id, {
-              title: 'New Order Assigned',
-              message: newRiderMessage,
-              data: {
-                orderId: id,
-                type: 'ORDER_ASSIGNED'
-              },
-              clickAction: `/rider/orders/${id}`
             });
-          } catch (pushErr) {
-            console.error('[orderController] Failed to send push to new rider:', pushErr);
+            console.log('[orderController] ✅ DB notification created for new rider');
+
+            // Send push notification to new rider
+            try {
+              console.log('[orderController] Sending push to new rider:', order.rider.user.id);
+              const { sendToUser } = await import('../services/pushService.js');
+              const result = await sendToUser(order.rider.user.id, {
+                title: 'New Order Assigned',
+                message: newRiderMessage,
+                data: {
+                  orderId: id,
+                  type: 'ORDER_ASSIGNED'
+                },
+                clickAction: `/rider/orders/${id}`
+              });
+              console.log('[orderController] ✅ Push notification result for new rider:', result);
+            } catch (pushErr) {
+              console.error('[orderController] ❌ Failed to send push to new rider:', pushErr);
+              console.error('[orderController] Push error details:', pushErr.message, pushErr.stack);
+            }
+          } catch (dbErr) {
+            console.error('[orderController] ❌ Failed to create DB notification for new rider:', dbErr);
           }
+        } else {
+          console.log('[orderController] ⚠️ No new rider user ID found, skipping new rider notification');
         }
       } catch (notifyErr) {
         console.error('[orderController] Failed to create rider notifications:', notifyErr);
@@ -900,8 +922,12 @@ export const cancelOrder = async (req, res) => {
     try {
       if (cancellerRole === 'ADMIN') {
         // Admin cancelled - notify rider
+        console.log('[orderController] Admin cancelled - checking if rider exists...');
+        console.log('[orderController] Updated rider:', updated.rider ? { id: updated.rider.id, name: updated.rider.name, userId: updated.rider.user?.id } : 'null');
+        
         if (updated.rider?.user?.id) {
           const riderMessage = formatCancelByAdminMessage(customerWithAddress, order.numberOfBottles);
+          console.log('[orderController] Creating DB notification for rider:', updated.rider.user.id);
           
           await prisma.notification.create({
             data: {
@@ -919,12 +945,13 @@ export const cancelOrder = async (req, res) => {
               }
             }
           });
+          console.log('[orderController] ✅ DB notification created for rider');
 
           // Send push notification to rider
           try {
             console.log('[orderController] Sending cancellation push to rider:', updated.rider.user.id);
             const { sendToUser } = await import('../services/pushService.js');
-            await sendToUser(updated.rider.user.id, {
+            const result = await sendToUser(updated.rider.user.id, {
               title: 'Order Cancelled',
               message: riderMessage,
               data: {
@@ -933,28 +960,37 @@ export const cancelOrder = async (req, res) => {
               },
               clickAction: `/rider/orders/${id}`
             });
+            console.log('[orderController] ✅ Push notification result for rider:', result);
           } catch (pushErr) {
-            console.error('[orderController] Failed to send cancellation push to rider:', pushErr);
+            console.error('[orderController] ❌ Failed to send cancellation push to rider:', pushErr);
+            console.error('[orderController] Push error details:', pushErr.message, pushErr.stack);
           }
+        } else {
+          console.log('[orderController] ⚠️ No rider found for this order, skipping rider notification');
         }
       } else if (cancellerRole === 'RIDER') {
         // Rider cancelled - notify all admins
+        console.log('[orderController] Rider cancelled - fetching admin users...');
         const adminUsers = await prisma.user.findMany({
           where: { role: 'ADMIN', isActive: true },
           select: { id: true }
         });
+        console.log('[orderController] Found', adminUsers.length, 'admin user(s)');
 
-        if (adminUsers.length > 0 && updated.rider) {
+        if (adminUsers.length > 0) {
+          const riderName = updated.rider?.name || 'Unknown Rider';
           const adminMessage = formatCancelByRiderMessage(
             customerWithAddress,
             order.numberOfBottles,
-            updated.rider.name
+            riderName
           );
+          console.log('[orderController] Admin notification message:', adminMessage);
 
           const adminUserIds = [];
 
           for (const adminUser of adminUsers) {
             adminUserIds.push(adminUser.id);
+            console.log('[orderController] Creating DB notification for admin:', adminUser.id);
             await prisma.notification.create({
               data: {
                 userId: adminUser.id,
@@ -968,20 +1004,23 @@ export const cancelOrder = async (req, res) => {
                     name: updated.customer.name,
                     phone: updated.customer.phone
                   },
-                  rider: {
+                  rider: updated.rider ? {
                     id: updated.rider.id,
                     name: updated.rider.name
-                  }
+                  } : null
                 }
               }
             });
+            console.log('[orderController] ✅ DB notification created for admin:', adminUser.id);
           }
+
+          console.log('[orderController] Created', adminUserIds.length, 'DB notification(s) for admins');
 
           // Send push notification to all admins
           try {
             console.log('[orderController] Sending cancellation push to', adminUserIds.length, 'admin(s)');
             const { sendToMultipleUsers } = await import('../services/pushService.js');
-            await sendToMultipleUsers(adminUserIds, {
+            const result = await sendToMultipleUsers(adminUserIds, {
               title: 'Rider Cancelled Order',
               message: adminMessage,
               data: {
@@ -990,13 +1029,20 @@ export const cancelOrder = async (req, res) => {
               },
               clickAction: `/admin/orders/${id}`
             });
+            console.log('[orderController] ✅ Push notification result for admins:', result);
           } catch (pushErr) {
-            console.error('[orderController] Failed to send cancellation push to admins:', pushErr);
+            console.error('[orderController] ❌ Failed to send cancellation push to admins:', pushErr);
+            console.error('[orderController] Push error details:', pushErr.message, pushErr.stack);
           }
+        } else {
+          console.log('[orderController] ⚠️ No admin users found, skipping admin notifications');
         }
+      } else {
+        console.log('[orderController] ⚠️ Unknown canceller role:', cancellerRole);
       }
     } catch (notifyErr) {
-      console.error('[orderController] Failed to create cancellation notifications:', notifyErr);
+      console.error('[orderController] ❌ Failed to create cancellation notifications:', notifyErr);
+      console.error('[orderController] Notification error details:', notifyErr.message, notifyErr.stack);
     }
 
     return res.json({ success: true, data: updated, message: 'Order cancelled and customer balance reverted' });
