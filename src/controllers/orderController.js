@@ -1213,6 +1213,55 @@ export const amendOrder = async (req, res) => {
       return updatedOrder;
     });
 
+    // Notify assigned rider (if any) about the update
+    if (updated.rider?.userId) {
+      try {
+        const fullCustomer = await prisma.customer.findUnique({
+          where: { id: updated.customer.id },
+          select: { name: true, houseNo: true, streetNo: true, area: true, city: true }
+        });
+        const address = formatAddress(fullCustomer);
+        const message = `Order for ${fullCustomer.name}, ${updated.numberOfBottles} bottle(s), ${address}`;
+
+        await prisma.notification.create({
+          data: {
+            userId: updated.rider.userId,
+            title: 'Order updated',
+            message: message,
+            type: 'ORDER_UPDATED',
+            data: {
+              orderId: id,
+              priority: updated.priority,
+              totalAmount: updated.totalAmount,
+              numberOfBottles: updated.numberOfBottles,
+              customer: {
+                id: updated.customer.id,
+                name: fullCustomer.name,
+                phone: updated.customer.phone
+              }
+            }
+          }
+        });
+
+        try {
+          const { sendToUser } = await import('../services/pushService.js');
+          await sendToUser(updated.rider.userId, {
+            title: 'Order updated',
+            message: message,
+            data: {
+              orderId: id,
+              type: 'ORDER_UPDATED'
+            },
+            clickAction: `/rider/orders/${id}`
+          });
+        } catch (pushErr) {
+          console.error('Failed to send push notification:', pushErr);
+        }
+      } catch (notifyErr) {
+        console.error('Failed to create ORDER_UPDATED notification in amend:', notifyErr);
+      }
+    }
+
     return res.json({ success: true, data: updated, message: 'Order amended successfully' });
   } catch (error) {
     console.error('Error amending order:', error);
