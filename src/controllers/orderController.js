@@ -847,6 +847,53 @@ export const cancelOrder = async (req, res) => {
       }
     }
 
+    // If admin (or not rider) cancels, notify the assigned rider (if any)
+    if (userRole !== 'RIDER' && updated.rider?.userId) {
+      try {
+        const fullCustomer = await prisma.customer.findUnique({
+          where: { id: updated.customer.id },
+          select: { name: true, houseNo: true, streetNo: true, area: true, city: true }
+        });
+        const address = formatAddress(fullCustomer);
+        const riderMessage = `Order for ${fullCustomer.name}, ${updated.numberOfBottles} bottle(s), ${address} has been cancelled`;
+
+        await prisma.notification.create({
+          data: {
+            userId: updated.rider.userId,
+            title: 'Order cancelled',
+            message: riderMessage,
+            type: 'SYSTEM_UPDATE',
+            data: {
+              orderId: id,
+              customer: {
+                id: updated.customer.id,
+                name: fullCustomer.name,
+                phone: updated.customer.phone
+              },
+              numberOfBottles: updated.numberOfBottles
+            }
+          }
+        });
+
+        try {
+          const { sendToUser } = await import('../services/pushService.js');
+          await sendToUser(updated.rider.userId, {
+            title: 'Order cancelled',
+            message: riderMessage,
+            data: {
+              orderId: id,
+              type: 'SYSTEM_UPDATE'
+            },
+            clickAction: `/rider/orders/${id}`
+          });
+        } catch (pushErr) {
+          console.error('Failed to send push notification to rider:', pushErr);
+        }
+      } catch (notifyErr) {
+        console.error('Failed to notify rider about cancellation:', notifyErr);
+      }
+    }
+
     return res.json({ success: true, data: updated, message: 'Order cancelled and customer balance reverted' });
   } catch (error) {
     console.error('Error cancelling order:', error);

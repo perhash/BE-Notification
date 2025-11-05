@@ -1,7 +1,11 @@
 import express from 'express';
+import { authenticateToken } from '../middleware/auth.js';
 import { getAllOrders, getOrderById, createOrder, updateOrderStatus, updateOrder, deliverOrder, cancelOrder, completeWalkInOrder, clearBill, amendOrder } from '../controllers/orderController.js';
 
 const router = express.Router();
+
+// Protect all order routes
+router.use(authenticateToken);
 
 // GET /api/orders
 router.get('/', getAllOrders);
