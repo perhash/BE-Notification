@@ -25,13 +25,13 @@ export const sendPushNotification = async (token, payload) => {
   try {
     initializeFirebase();
 
-    // Send only data payload to prevent automatic notification display
-    // Frontend will handle showing notifications manually
     const message = {
       token: token,
+      notification: {
+        title: payload.title,
+        body: payload.message
+      },
       data: {
-        title: payload.title || '',
-        body: payload.message || '',
         orderId: payload.data?.orderId || '',
         type: payload.data?.type || 'SYSTEM_UPDATE',
         clickAction: payload.clickAction || '/'
@@ -39,17 +39,22 @@ export const sendPushNotification = async (token, payload) => {
       webpush: {
         fcmOptions: {
           link: payload.clickAction || '/'
+        },
+        notification: {
+          icon: '/pwa-192x192.png',
+          badge: '/pwa-192x192.png',
+          requireInteraction: true
         }
       },
       apns: {
         payload: {
           aps: {
-            badge: 1,
-            sound: 'default',
             alert: {
-              title: payload.title || '',
-              body: payload.message || ''
-            }
+              title: payload.title,
+              body: payload.message
+            },
+            badge: 1,
+            sound: 'default'
           }
         }
       }
