@@ -249,12 +249,12 @@ export const createOrder = async (req, res) => {
           });
 
           const address = formatAddress(fullCustomer);
-          const message = `Order for ${fullCustomer.name}, ${order.numberOfBottles} bottle(s), ${address}`;
+          const message = `${fullCustomer.name} ka order - ${order.numberOfBottles} bottle(ain), Rs ${order.totalAmount}, ${address}`;
 
           await prisma.notification.create({
             data: {
               userId: riderProfile.userId,
-              title: 'New order assigned',
+              title: 'Naya order',
               message: message,
               type: 'ORDER_ASSIGNED',
               data: {
@@ -275,7 +275,7 @@ export const createOrder = async (req, res) => {
           try {
             const { sendToUser } = await import('../services/pushService.js');
             await sendToUser(riderProfile.userId, {
-              title: 'New order assigned',
+              title: 'Naya order',
               message: message,
               data: {
                 orderId: order.id,
@@ -372,12 +372,12 @@ export const updateOrderStatus = async (req, res) => {
         
         // Notify old rider that order is reassigned
         if (oldRiderUserId) {
-          const oldRiderMessage = `Order for ${order.customer.name}, ${order.numberOfBottles} bottle(s), ${address} is no longer assigned to you`;
+          const oldRiderMessage = `${order.customer.name} ka order - ${order.numberOfBottles} bottle(ain), Rs ${order.totalAmount}, ab aap se hata diya gaya, ${address}`;
           
           await prisma.notification.create({
             data: {
               userId: oldRiderUserId,
-              title: 'Order reassigned',
+              title: 'Order reassign ho gaya',
               message: oldRiderMessage,
               type: 'ORDER_REASSIGNED',
               data: {
@@ -396,7 +396,7 @@ export const updateOrderStatus = async (req, res) => {
           try {
             const { sendToUser } = await import('../services/pushService.js');
             await sendToUser(oldRiderUserId, {
-              title: 'Order reassigned',
+              title: 'Order reassign ho gaya',
               message: oldRiderMessage,
               data: {
                 orderId: id,
@@ -411,12 +411,12 @@ export const updateOrderStatus = async (req, res) => {
 
         // Notify new rider that order is assigned
         if (order.rider?.user?.id) {
-          const newRiderMessage = `Order for ${order.customer.name}, ${order.numberOfBottles} bottle(s), ${address}`;
+          const newRiderMessage = `${order.customer.name} ka order - ${order.numberOfBottles} bottle(ain), Rs ${order.totalAmount}, ${address}`;
           
           await prisma.notification.create({
             data: {
               userId: order.rider.user.id,
-              title: 'New order assigned',
+              title: 'Naya order',
               message: newRiderMessage,
               type: 'ORDER_ASSIGNED',
               data: {
@@ -437,7 +437,7 @@ export const updateOrderStatus = async (req, res) => {
           try {
             const { sendToUser } = await import('../services/pushService.js');
             await sendToUser(order.rider.user.id, {
-              title: 'New order assigned',
+              title: 'Naya order',
               message: newRiderMessage,
               data: {
                 orderId: id,
@@ -458,12 +458,12 @@ export const updateOrderStatus = async (req, res) => {
       try {
         if (order.rider?.user?.id) {
           const address = formatAddress(order.customer);
-          const message = `Order for ${order.customer.name}, ${order.numberOfBottles} bottle(s), ${address}`;
+          const message = `${order.customer.name} ka order - ${order.numberOfBottles} bottle(ain), Rs ${order.totalAmount}, ${address}`;
           
           await prisma.notification.create({
             data: {
               userId: order.rider.user.id,
-              title: 'New order assigned',
+              title: 'Naya order',
               message: message,
               type: 'ORDER_ASSIGNED',
               data: {
@@ -484,7 +484,7 @@ export const updateOrderStatus = async (req, res) => {
           try {
             const { sendToUser } = await import('../services/pushService.js');
             await sendToUser(order.rider.user.id, {
-              title: 'New order assigned',
+              title: 'Naya order',
               message: message,
               data: {
                 orderId: id,
@@ -672,14 +672,14 @@ export const deliverOrder = async (req, res) => {
       });
 
       const adminUserIds = [];
-      const message = `${updated.customer.name} | Total: ${total} | Received: ${paid} | Status: ${paymentStatus}`;
+      const message = `${updated.customer.name} | Total Rs ${total} | Received Rs ${paid} | Payment: ${paymentStatus}`;
 
       for (const adminUser of adminUsers) {
         adminUserIds.push(adminUser.id);
         await prisma.notification.create({
           data: {
             userId: adminUser.id,
-            title: 'Order delivered',
+            title: 'Order deliver ho gaya',
             message: message,
             type: 'ORDER_DELIVERED',
             data: {
@@ -705,7 +705,7 @@ export const deliverOrder = async (req, res) => {
       try {
         const { sendToMultipleUsers } = await import('../services/pushService.js');
         await sendToMultipleUsers(adminUserIds, {
-          title: 'Order delivered',
+          title: 'Order deliver ho gaya',
           message: message,
           data: {
             orderId: id,
@@ -790,7 +790,7 @@ export const cancelOrder = async (req, res) => {
         });
 
         const address = formatAddress(fullCustomer);
-        const message = `${updated.rider?.name || 'Rider'} canceled order for ${fullCustomer.name}, ${updated.numberOfBottles} bottle(s), ${address}`;
+        const message = `${updated.rider?.name || 'Rider'} ne ${fullCustomer.name} ka order cancel kar diya - ${updated.numberOfBottles} bottle(ain), Rs ${updated.totalAmount}, ${address}`;
 
         // Get all admin users
         const adminUsers = await prisma.user.findMany({
@@ -806,7 +806,7 @@ export const cancelOrder = async (req, res) => {
           await prisma.notification.create({
             data: {
               userId: adminUser.id,
-              title: 'Rider canceled assigned order',
+              title: 'Order cancel ho gaya',
               message: message,
               type: 'RIDER_CANCELED_ORDER',
               data: {
@@ -830,7 +830,7 @@ export const cancelOrder = async (req, res) => {
         try {
           const { sendToMultipleUsers } = await import('../services/pushService.js');
           await sendToMultipleUsers(adminUserIds, {
-            title: 'Rider canceled assigned order',
+            title: 'Order cancel ho gaya',
             message: message,
             data: {
               orderId: id,
@@ -855,12 +855,12 @@ export const cancelOrder = async (req, res) => {
           select: { name: true, houseNo: true, streetNo: true, area: true, city: true }
         });
         const address = formatAddress(fullCustomer);
-        const riderMessage = `Order for ${fullCustomer.name}, ${updated.numberOfBottles} bottle(s), ${address} has been cancelled`;
+        const riderMessage = `${fullCustomer.name} ka ${updated.numberOfBottles} bottle(ain) wala order cancel ho gaya, ${address}`;
 
         await prisma.notification.create({
           data: {
             userId: updated.rider.userId,
-            title: 'Order cancelled',
+            title: 'Order cancel ho gaya',
             message: riderMessage,
             type: 'SYSTEM_UPDATE',
             data: {
@@ -878,7 +878,7 @@ export const cancelOrder = async (req, res) => {
         try {
           const { sendToUser } = await import('../services/pushService.js');
           await sendToUser(updated.rider.userId, {
-            title: 'Order cancelled',
+            title: 'Order cancel ho gaya',
             message: riderMessage,
             data: {
               orderId: id,
@@ -940,12 +940,12 @@ export const updateOrder = async (req, res) => {
         });
 
         const address = formatAddress(fullCustomer);
-        const message = `Order for ${fullCustomer.name}, ${order.numberOfBottles} bottle(s), ${address}`;
+        const message = `${fullCustomer.name} ke order mein changes - ${order.numberOfBottles} bottle(ain), amount Rs ${order.totalAmount}, ${address}`;
 
         await prisma.notification.create({
           data: {
             userId: order.rider.user.id,
-            title: 'Order updated',
+            title: 'Order mein changes hain',
             message: message,
             type: 'ORDER_UPDATED',
             data: {
@@ -966,7 +966,7 @@ export const updateOrder = async (req, res) => {
         try {
           const { sendToUser } = await import('../services/pushService.js');
           await sendToUser(order.rider.user.id, {
-            title: 'Order updated',
+            title: 'Order mein changes hain',
             message: message,
             data: {
               orderId: id,
@@ -1221,12 +1221,12 @@ export const amendOrder = async (req, res) => {
           select: { name: true, houseNo: true, streetNo: true, area: true, city: true }
         });
         const address = formatAddress(fullCustomer);
-        const message = `Order for ${fullCustomer.name}, ${updated.numberOfBottles} bottle(s), ${address}`;
+        const message = `${fullCustomer.name} ke order mein changes - ${updated.numberOfBottles} bottle(ain), amount Rs ${updated.totalAmount}, ${address}`;
 
         await prisma.notification.create({
           data: {
             userId: updated.rider.userId,
-            title: 'Order updated',
+            title: 'Order mein changes hain',
             message: message,
             type: 'ORDER_UPDATED',
             data: {
@@ -1246,7 +1246,7 @@ export const amendOrder = async (req, res) => {
         try {
           const { sendToUser } = await import('../services/pushService.js');
           await sendToUser(updated.rider.userId, {
-            title: 'Order updated',
+            title: 'Order mein changes hain',
             message: message,
             data: {
               orderId: id,
