@@ -35,6 +35,7 @@ export const getAllRiders = async (req, res) => {
       phone: rider.phone,
       email: rider.user.email,
       isActive: rider.isActive,
+      canCreateOrders: rider.canCreateOrders,
       totalDeliveries: rider.orders.filter(o => o.status === 'DELIVERED').length,
       pendingDeliveries: rider.orders.filter(o => o.status === 'ASSIGNED' || o.status === 'IN_PROGRESS').length,
       currentOrders: rider.orders.filter(o => o.status === 'ASSIGNED' || o.status === 'IN_PROGRESS').map(order => ({
@@ -190,7 +191,7 @@ export const getRiderDashboard = async (req, res) => {
 // Create new rider
 export const createRider = async (req, res) => {
   try {
-    const { name, phone, email, password } = req.body;
+    const { name, phone, email, password, canCreateOrders } = req.body;
 
     // Validate required fields
     if (!name || !phone || !email || !password) {
@@ -239,7 +240,8 @@ export const createRider = async (req, res) => {
           userId: user.id,
           name,
           phone,
-          isActive: true
+          isActive: true,
+          canCreateOrders: !!canCreateOrders
         },
         include: {
           user: {
@@ -265,6 +267,7 @@ export const createRider = async (req, res) => {
         phone: result.phone,
         email: result.user.email,
         isActive: result.isActive,
+        canCreateOrders: result.canCreateOrders,
         user: result.user,
         createdAt: result.createdAt
       },
@@ -295,7 +298,7 @@ export const createRider = async (req, res) => {
 export const updateRider = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, phone, email, isActive } = req.body;
+    const { name, phone, email, isActive, canCreateOrders } = req.body;
 
     // Validate required fields
     if (!name || !phone || !email) {
@@ -342,7 +345,8 @@ export const updateRider = async (req, res) => {
         data: {
           name,
           phone,
-          isActive: isActive !== undefined ? isActive : true
+          isActive: isActive !== undefined ? isActive : true,
+          ...(canCreateOrders !== undefined ? { canCreateOrders: !!canCreateOrders } : {})
         },
         include: {
           user: {
@@ -368,6 +372,7 @@ export const updateRider = async (req, res) => {
         phone: result.phone,
         email: result.user.email,
         isActive: result.isActive,
+        canCreateOrders: result.canCreateOrders,
         user: result.user,
         updatedAt: result.updatedAt
       },

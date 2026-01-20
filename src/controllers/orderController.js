@@ -597,6 +597,204 @@ export const completeWalkInOrder = async (req, res) => {
   }
 };
 
+// Rider enroute order - create and immediately mark as delivered with full payment
+export const createEnrouteOrder = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    const userRole = req.user?.role;
+
+    if (!userId || userRole !== 'RIDER') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only riders can create enroute orders'
+      });
+    }
+
+    const { customerId, numberOfBottles = 1, unitPrice, notes, paymentAmount, paymentMethod = 'CASH', priority = 'NORMAL' } = req.body;
+
+    if (!customerId || !unitPrice) {
+      return res.status(400).json({
+        success: false,
+        message: 'customerId and unitPrice are required'
+      });
+    }
+
+    // Find rider profile and check permission
+    const riderProfile = await prisma.riderProfile.findFirst({
+      where: { userId, isActive: true },
+      include: { user: true }
+    });
+
+    if (!riderProfile) {
+      return res.status(404).json({
+        success: false,
+        message: 'Rider profile not found'
+      });
+    }
+
+    if (!riderProfile.canCreateOrders) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not allowed to create orders'
+      });
+    }
+
+    // Handle walk-in customer lookup (reuse same logic)
+    let customer;
+    if (customerId === 'walkin') {
+      customer = await prisma.customer.findFirst({
+        where: { name: 'Walk-in Customer' },
+        select: { id: true, currentBalance: true, name: true }
+      });
+    } else {
+      customer = await prisma.customer.findUnique({
+        where: { id: customerId },
+        select: { id: true, currentBalance: true, name: true }
+      });
+    }
+
+    if (!customer) {
+      return res.status(404).json({
+        success: false,
+        message: 'Customer not found'
+      });
+    }
+
+    const bottles = parseInt(numberOfBottles);
+    const price = parseFloat(unitPrice);
+    const orderAmount = bottles * price;
+
+    // Enroute orders must be fully paid
+    const paid = paymentAmount !== undefined && paymentAmount !== null
+      ? parseFloat(paymentAmount)
+      : orderAmount;
+
+    if (isNaN(paid) || paid <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Enroute order must have a positive paid amount'
+      });
+    }
+
+    if (paid !== orderAmount) {
+      return res.status(400).json({
+        success: false,
+        message: 'Enroute order must be fully paid (paid amount must equal order amount)'
+      });
+    }
+
+    const customerBalanceSnapshot = parseFloat(customer.currentBalance);
+    const totalAmount = customerBalanceSnapshot + orderAmount;
+
+    const updatedOrder = await prisma.$transaction(async (tx) => {
+      // Create base ENROUTE order
+      const order = await tx.order.create({
+        data: {
+          customerId: customer.id,
+          riderId: riderProfile.id,
+          orderType: 'ENROUTE',
+          status: 'DELIVERED',
+          numberOfBottles: bottles,
+          currentOrderAmount: orderAmount,
+          customerBalance: customerBalanceSnapshot,
+          totalAmount: totalAmount,
+          paidAmount: paid,
+          paymentStatus: 'PAID',
+          paymentMethod: paymentMethod.toUpperCase(),
+          paymentNotes: notes || null,
+          receivable: 0,
+          payable: 0,
+          priority: priority.toUpperCase(),
+          notes,
+          deliveredAt: new Date()
+        },
+        include: {
+          customer: true,
+          rider: true
+        }
+      });
+
+      // Update customer balance after payment (same as deliverOrder: currentBalance - paid)
+      const newCustomerBalance = customerBalanceSnapshot - paid;
+      await tx.customer.update({
+        where: { id: customer.id },
+        data: { currentBalance: newCustomerBalance }
+      });
+
+      return order;
+    });
+
+    // Notify all admins about enroute order
+    try {
+      const adminUsers = await prisma.user.findMany({
+        where: { role: 'ADMIN', isActive: true },
+        select: { id: true }
+      });
+
+      const adminUserIds = [];
+      const message = `${riderProfile.name} ne ek enroute order create kia or deliver kar dia hai - ${updatedOrder.numberOfBottles} bottle(ain), Rs ${updatedOrder.paidAmount}`;
+
+      for (const adminUser of adminUsers) {
+        adminUserIds.push(adminUser.id);
+        await prisma.notification.create({
+          data: {
+            userId: adminUser.id,
+            title: 'Enroute order complete ho gaya',
+            message: message,
+            type: 'ORDER_DELIVERED',
+            data: {
+              orderId: updatedOrder.id,
+              rider: {
+                id: riderProfile.id,
+                name: riderProfile.name
+              },
+              customer: {
+                id: updatedOrder.customerId,
+                name: updatedOrder.customer.name,
+                phone: updatedOrder.customer.phone
+              },
+              paymentAmount: updatedOrder.paidAmount,
+              paymentStatus: updatedOrder.paymentStatus,
+              totalAmount: updatedOrder.totalAmount
+            }
+          }
+        });
+      }
+
+      // Push notification to admins
+      try {
+        const { sendToMultipleUsers } = await import('../services/pushService.js');
+        await sendToMultipleUsers(adminUserIds, {
+          title: 'Enroute order complete ho gaya',
+          message: message,
+          data: {
+            orderId: updatedOrder.id,
+            type: 'ORDER_DELIVERED'
+          },
+          clickAction: `/admin/orders/${updatedOrder.id}`
+        });
+      } catch (pushErr) {
+        console.error('Failed to send enroute push notification:', pushErr);
+      }
+    } catch (notifyErr) {
+      console.error('Failed to create enroute admin notification:', notifyErr);
+    }
+
+    return res.status(201).json({
+      success: true,
+      data: updatedOrder,
+      message: 'Enroute order created and delivered successfully'
+    });
+  } catch (error) {
+    console.error('Error creating enroute order:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to create enroute order',
+      error: error.message
+    });
+  }
+};
+
 // Mark order delivered and handle payment + customer balance
 export const deliverOrder = async (req, res) => {
   try {

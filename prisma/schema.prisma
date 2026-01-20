@@ -42,6 +42,7 @@ model RiderProfile {
   name              String
   phone             String
   isActive          Boolean              @default(true)
+  canCreateOrders   Boolean              @default(false)
   createdAt         DateTime             @default(now())
   updatedAt         DateTime             @updatedAt
   orders            Order[]
@@ -222,6 +223,7 @@ enum OrderType {
   WALKIN
   DELIVERY
   CLEARBILL
+  ENROUTE
 }
 
 enum Priority {
