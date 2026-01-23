@@ -1,6 +1,6 @@
 import express from 'express';
 import { authenticateToken } from '../middleware/auth.js';
-import { getAllOrders, getOrderById, createOrder, updateOrderStatus, updateOrder, deliverOrder, cancelOrder, completeWalkInOrder, clearBill, amendOrder, createEnrouteOrder } from '../controllers/orderController.js';
+import { getAllOrders, getOrderById, createOrder, updateOrderStatus, updateOrder, deliverOrder, cancelOrder, completeWalkInOrder, clearBill, amendOrder, createEnrouteOrder, editOrderByRider } from '../controllers/orderController.js';
 
 const router = express.Router();
 
@@ -38,5 +38,8 @@ router.post('/clear-bill', clearBill);
 
 // POST /api/orders/:id/amend
 router.post('/:id/amend', amendOrder);
+
+// PATCH /api/orders/:id/edit-by-rider (rider can edit quantity)
+router.patch('/:id/edit-by-rider', editOrderByRider);
 
 export default router;

@@ -870,7 +870,8 @@ export const deliverOrder = async (req, res) => {
       });
 
       const adminUserIds = [];
-      const message = `${updated.customer.name} | Total Rs ${total} | Received Rs ${paid} | Payment: ${paymentStatus}`;
+      // Include updated order details in notification
+      const message = `${updated.customer.name} | ${updated.numberOfBottles} bottle(s) | Total Rs ${total} | Received Rs ${paid} | Payment: ${paymentStatus}`;
 
       for (const adminUser of adminUsers) {
         adminUserIds.push(adminUser.id);
@@ -893,7 +894,9 @@ export const deliverOrder = async (req, res) => {
               } : null,
               paymentAmount: paid,
               paymentStatus,
-              totalAmount: total
+              totalAmount: total,
+              numberOfBottles: updated.numberOfBottles,
+              currentOrderAmount: parseFloat(updated.currentOrderAmount)
             }
           }
         });
@@ -1464,5 +1467,184 @@ export const amendOrder = async (req, res) => {
   } catch (error) {
     console.error('Error amending order:', error);
     return res.status(500).json({ success: false, message: 'Failed to amend order', error: error.message });
+  }
+};
+
+// Rider edit order - only quantity can be changed
+export const editOrderByRider = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { numberOfBottles } = req.body;
+    const userId = req.user?.id;
+    const userRole = req.user?.role;
+
+    // Only riders can edit
+    if (!userId || userRole !== 'RIDER') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only riders can edit orders'
+      });
+    }
+
+    if (!numberOfBottles || numberOfBottles < 1) {
+      return res.status(400).json({
+        success: false,
+        message: 'numberOfBottles must be at least 1'
+      });
+    }
+
+    // Get rider profile
+    const riderProfile = await prisma.riderProfile.findFirst({
+      where: { userId, isActive: true }
+    });
+
+    if (!riderProfile) {
+      return res.status(404).json({
+        success: false,
+        message: 'Rider profile not found'
+      });
+    }
+
+    // Get order
+    const order = await prisma.order.findUnique({
+      where: { id },
+      include: { customer: true }
+    });
+
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    // Check if rider is assigned to this order
+    if (order.riderId !== riderProfile.id) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only edit orders assigned to you'
+      });
+    }
+
+    // Only allow edits for ASSIGNED or IN_PROGRESS orders
+    const editableStatuses = ['ASSIGNED', 'IN_PROGRESS'];
+    if (!editableStatuses.includes(order.status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Only assigned or in-progress orders can be edited'
+      });
+    }
+
+    // Store original values for notification
+    const originalBottles = order.numberOfBottles;
+    const originalTotalAmount = parseFloat(order.totalAmount);
+
+    // Calculate unit price from current order
+    const unitPrice = parseFloat(order.currentOrderAmount) / order.numberOfBottles;
+
+    // Revert customer balance to snapshot
+    const snapshotBalance = parseFloat(order.customerBalance);
+    const newCurrentOrderAmount = parseInt(numberOfBottles) * unitPrice;
+    const newTotalAmount = snapshotBalance + newCurrentOrderAmount;
+
+    const updated = await prisma.$transaction(async (tx) => {
+      // Revert customer balance to snapshot first
+      await tx.customer.update({
+        where: { id: order.customerId },
+        data: { currentBalance: snapshotBalance }
+      });
+
+      // Update the order
+      const updatedOrder = await tx.order.update({
+        where: { id },
+        data: {
+          numberOfBottles: parseInt(numberOfBottles),
+          totalAmount: newTotalAmount,
+          currentOrderAmount: newCurrentOrderAmount
+        },
+        include: { customer: true, rider: true }
+      });
+
+      // Update customer balance with new total
+      await tx.customer.update({
+        where: { id: order.customerId },
+        data: { currentBalance: newTotalAmount }
+      });
+
+      return updatedOrder;
+    });
+
+    // Notify all admin users
+    try {
+      const adminUsers = await prisma.user.findMany({
+        where: { role: 'ADMIN', isActive: true },
+        select: { id: true }
+      });
+
+      const fullCustomer = await prisma.customer.findUnique({
+        where: { id: updated.customer.id },
+        select: { name: true, houseNo: true, streetNo: true, area: true, city: true }
+      });
+
+      const address = formatAddress(fullCustomer);
+      const message = `Rider na ${fullCustomer.name} ka order update kia ha jo ${originalBottles} phela tha or ab ${updated.numberOfBottles} ha ot ab bill ${newTotalAmount}`;
+
+      for (const adminUser of adminUsers) {
+        await prisma.notification.create({
+          data: {
+            userId: adminUser.id,
+            title: 'Rider ne order update kia',
+            message: message,
+            type: 'ORDER_UPDATED',
+            data: {
+              orderId: id,
+              customer: {
+                id: updated.customer.id,
+                name: fullCustomer.name,
+                phone: updated.customer.phone
+              },
+              rider: {
+                id: updated.rider?.id,
+                name: updated.rider?.name
+              },
+              originalBottles,
+              newBottles: updated.numberOfBottles,
+              originalTotalAmount,
+              newTotalAmount,
+              address
+            }
+          }
+        });
+      }
+
+      // Send push notification to all admins
+      try {
+        const { sendToMultipleUsers } = await import('../services/pushService.js');
+        const adminUserIds = adminUsers.map(u => u.id);
+        await sendToMultipleUsers(adminUserIds, {
+          title: 'Rider ne order update kia',
+          message: message,
+          data: {
+            orderId: id,
+            type: 'ORDER_UPDATED'
+          },
+          clickAction: `/admin/orders/${id}`
+        });
+      } catch (pushErr) {
+        console.error('Failed to send push notification:', pushErr);
+      }
+    } catch (notifyErr) {
+      console.error('Failed to create admin notification:', notifyErr);
+    }
+
+    return res.json({
+      success: true,
+      data: updated,
+      message: 'Order updated successfully'
+    });
+  } catch (error) {
+    console.error('Error editing order by rider:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to edit order',
+      error: error.message
+    });
   }
 };
