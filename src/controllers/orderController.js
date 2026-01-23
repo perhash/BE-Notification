@@ -664,27 +664,49 @@ export const createEnrouteOrder = async (req, res) => {
     const price = parseFloat(unitPrice);
     const orderAmount = bottles * price;
 
-    // Enroute orders must be fully paid
+    // Determine if it's walk-in generic customer
+    const isWalkInGeneric = customer.name === 'Walk-in Customer';
+
+    // Payment validation based on customer type
     const paid = paymentAmount !== undefined && paymentAmount !== null
       ? parseFloat(paymentAmount)
-      : orderAmount;
+      : 0;
 
-    if (isNaN(paid) || paid <= 0) {
+    if (isNaN(paid) || paid < 0) {
       return res.status(400).json({
         success: false,
-        message: 'Enroute order must have a positive paid amount'
+        message: 'Payment amount must be a positive number'
       });
     }
 
-    if (paid !== orderAmount) {
+    // Walk-in generic customer must pay full amount
+    if (isWalkInGeneric && paid !== orderAmount) {
       return res.status(400).json({
         success: false,
-        message: 'Enroute order must be fully paid (paid amount must equal order amount)'
+        message: 'Walk-in customer must pay full amount. Payment must equal order amount.'
       });
     }
 
     const customerBalanceSnapshot = parseFloat(customer.currentBalance);
     const totalAmount = customerBalanceSnapshot + orderAmount;
+    const remaining = totalAmount - paid;
+
+    // Determine payment status
+    let paymentStatus = 'NOT_PAID';
+    if (paid === 0) paymentStatus = 'NOT_PAID';
+    else if (paid < 0) paymentStatus = 'REFUND';
+    else if (paid > 0 && paid < totalAmount) paymentStatus = 'PARTIAL';
+    else if (paid === totalAmount) paymentStatus = 'PAID';
+    else if (paid > totalAmount) paymentStatus = 'OVERPAID';
+
+    // Calculate receivable and payable
+    let receivable = 0;
+    let payable = 0;
+    if (remaining > 0) {
+      receivable = remaining;
+    } else if (remaining < 0) {
+      payable = Math.abs(remaining);
+    }
 
     const updatedOrder = await prisma.$transaction(async (tx) => {
       // Create base ENROUTE order
@@ -699,11 +721,11 @@ export const createEnrouteOrder = async (req, res) => {
           customerBalance: customerBalanceSnapshot,
           totalAmount: totalAmount,
           paidAmount: paid,
-          paymentStatus: 'PAID',
+          paymentStatus,
           paymentMethod: paymentMethod.toUpperCase(),
           paymentNotes: notes || null,
-          receivable: 0,
-          payable: 0,
+          receivable,
+          payable,
           priority: priority.toUpperCase(),
           notes,
           deliveredAt: new Date()
@@ -714,12 +736,23 @@ export const createEnrouteOrder = async (req, res) => {
         }
       });
 
-      // Update customer balance after payment (same as deliverOrder: currentBalance - paid)
-      const newCustomerBalance = customerBalanceSnapshot - paid;
-      await tx.customer.update({
-        where: { id: customer.id },
-        data: { currentBalance: newCustomerBalance }
-      });
+      // Update customer balance after payment
+      // For walk-in generic: balance stays 0 (no change)
+      // For known customers: newBalance = totalAmount - paid
+      if (isWalkInGeneric) {
+        // Walk-in generic customer balance remains 0
+        await tx.customer.update({
+          where: { id: customer.id },
+          data: { currentBalance: 0 }
+        });
+      } else {
+        // Known customer: update balance
+        const newCustomerBalance = totalAmount - paid;
+        await tx.customer.update({
+          where: { id: customer.id },
+          data: { currentBalance: newCustomerBalance }
+        });
+      }
 
       return order;
     });
