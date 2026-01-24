@@ -136,6 +136,7 @@ model DailyClosing {
   totalCurrentOrderAmount  Decimal                    @default(0)
   walkInAmount             Decimal                    @default(0)
   clearBillAmount          Decimal                    @default(0)
+  enrouteAmount            Decimal                    @default(0)
   balanceClearedToday      Decimal                    @default(0)
   totalBottles             Int                        @default(0)
   totalOrders              Int                        @default(0)
@@ -148,15 +149,16 @@ model DailyClosing {
 }
 
 model DailyClosingRider {
-  id              String       @id @default(cuid())
+  id              String                     @id @default(cuid())
   dailyClosingId  String
   riderId         String
-  amount          Decimal      @default(0)
-  ordersCount     Int          @default(0)
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
-  dailyClosing    DailyClosing @relation(fields: [dailyClosingId], references: [id], onDelete: Cascade)
-  rider           RiderProfile @relation(fields: [riderId], references: [id])
+  amount          Decimal                    @default(0)
+  ordersCount     Int                        @default(0)
+  createdAt       DateTime                   @default(now())
+  updatedAt       DateTime                   @updatedAt
+  dailyClosing    DailyClosing               @relation(fields: [dailyClosingId], references: [id], onDelete: Cascade)
+  rider           RiderProfile               @relation(fields: [riderId], references: [id])
+  paymentMethods   DailyClosingRiderPayment[]
 
   @@unique([dailyClosingId, riderId])
   @@map("daily_closing_riders")
@@ -174,6 +176,20 @@ model DailyClosingPayment {
 
   @@unique([dailyClosingId, paymentMethod])
   @@map("daily_closing_payments")
+}
+
+model DailyClosingRiderPayment {
+  id              String             @id @default(cuid())
+  dailyClosingRiderId String
+  paymentMethod   PaymentMethod
+  amount          Decimal            @default(0)
+  ordersCount     Int                @default(0)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  dailyClosingRider DailyClosingRider @relation(fields: [dailyClosingRiderId], references: [id], onDelete: Cascade)
+
+  @@unique([dailyClosingRiderId, paymentMethod])
+  @@map("daily_closing_rider_payments")
 }
 
 model bottle_categories {

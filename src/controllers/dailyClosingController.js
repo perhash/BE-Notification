@@ -88,7 +88,7 @@ export const getDailyClosingSummary = async (req, res) => {
 
     const totalOrders = todayOrders.length;
 
-    // Group by rider for collections
+    // Group by rider for collections with payment method breakdown
     const riderCollectionsMap = new Map();
     todayOrders.forEach(order => {
       if (!order.riderId) return; // Skip orders without riders
@@ -96,10 +96,31 @@ export const getDailyClosingSummary = async (req, res) => {
         const existing = riderCollectionsMap.get(order.riderId);
         existing.amount += parseFloat(order.paidAmount);
         existing.ordersCount += 1;
+        
+        // Track payment methods per rider
+        const paymentMethod = order.paymentMethod || 'CASH';
+        if (existing.paymentMethods.has(paymentMethod)) {
+          const pmData = existing.paymentMethods.get(paymentMethod);
+          pmData.amount += parseFloat(order.paidAmount);
+          pmData.ordersCount += 1;
+        } else {
+          existing.paymentMethods.set(paymentMethod, {
+            amount: parseFloat(order.paidAmount),
+            ordersCount: 1
+          });
+        }
       } else {
-        riderCollectionsMap.set(order.riderId, {
+        const paymentMethod = order.paymentMethod || 'CASH';
+        const paymentMethodsMap = new Map();
+        paymentMethodsMap.set(paymentMethod, {
           amount: parseFloat(order.paidAmount),
           ordersCount: 1
+        });
+        
+        riderCollectionsMap.set(order.riderId, {
+          amount: parseFloat(order.paidAmount),
+          ordersCount: 1,
+          paymentMethods: paymentMethodsMap
         });
       }
     });
@@ -117,7 +138,12 @@ export const getDailyClosingSummary = async (req, res) => {
       riderId,
       riderName: ridersMap.get(riderId) || 'Unknown',
       amount: data.amount,
-      ordersCount: data.ordersCount
+      ordersCount: data.ordersCount,
+      paymentMethods: Array.from(data.paymentMethods.entries()).map(([method, pmData]) => ({
+        method,
+        amount: pmData.amount,
+        ordersCount: pmData.ordersCount
+      }))
     }));
 
     // Group by payment method
@@ -159,6 +185,7 @@ export const getDailyClosingSummary = async (req, res) => {
         totalCurrentOrderAmount,
         walkInAmount,
         clearBillAmount,
+        enrouteAmount,
         balanceClearedToday,
         totalBottles,
         totalOrders,
@@ -263,6 +290,10 @@ export const saveDailyClosing = async (req, res) => {
       .filter(order => order.orderType === 'CLEARBILL')
       .reduce((sum, order) => sum + parseFloat(order.paidAmount), 0);
 
+    const enrouteAmount = todayOrders
+      .filter(order => order.orderType === 'ENROUTE')
+      .reduce((sum, order) => sum + parseFloat(order.paidAmount), 0);
+
     const balanceClearedToday = totalCurrentOrderAmount - totalPaidAmount;
 
     const totalBottles = todayOrders.reduce(
@@ -272,7 +303,7 @@ export const saveDailyClosing = async (req, res) => {
 
     const totalOrders = todayOrders.length;
 
-    // Group by rider for collections
+    // Group by rider for collections with payment method breakdown
     const riderCollectionsMap = new Map();
     todayOrders.forEach(order => {
       if (!order.riderId) return; // Skip orders without riders
@@ -280,10 +311,31 @@ export const saveDailyClosing = async (req, res) => {
         const existing = riderCollectionsMap.get(order.riderId);
         existing.amount += parseFloat(order.paidAmount);
         existing.ordersCount += 1;
+        
+        // Track payment methods per rider
+        const paymentMethod = order.paymentMethod || 'CASH';
+        if (existing.paymentMethods.has(paymentMethod)) {
+          const pmData = existing.paymentMethods.get(paymentMethod);
+          pmData.amount += parseFloat(order.paidAmount);
+          pmData.ordersCount += 1;
+        } else {
+          existing.paymentMethods.set(paymentMethod, {
+            amount: parseFloat(order.paidAmount),
+            ordersCount: 1
+          });
+        }
       } else {
-        riderCollectionsMap.set(order.riderId, {
+        const paymentMethod = order.paymentMethod || 'CASH';
+        const paymentMethodsMap = new Map();
+        paymentMethodsMap.set(paymentMethod, {
           amount: parseFloat(order.paidAmount),
           ordersCount: 1
+        });
+        
+        riderCollectionsMap.set(order.riderId, {
+          amount: parseFloat(order.paidAmount),
+          ordersCount: 1,
+          paymentMethods: paymentMethodsMap
         });
       }
     });
@@ -318,6 +370,7 @@ export const saveDailyClosing = async (req, res) => {
         totalCurrentOrderAmount,
         walkInAmount,
         clearBillAmount,
+        enrouteAmount,
         balanceClearedToday,
         totalBottles,
         totalOrders,
@@ -337,24 +390,34 @@ export const saveDailyClosing = async (req, res) => {
         totalCurrentOrderAmount,
         walkInAmount,
         clearBillAmount,
+        enrouteAmount,
         balanceClearedToday,
         totalBottles,
         totalOrders
       }
     });
 
-    // Create rider collections
-    const riderCollections = Array.from(riderCollectionsMap.entries()).map(([riderId, data]) => ({
+    // Create rider collections with payment method breakdowns
+    const riderCollectionsData = Array.from(riderCollectionsMap.entries()).map(([riderId, data]) => ({
       dailyClosingId: dailyClosing.id,
       riderId: riderId,
       amount: data.amount,
-      ordersCount: data.ordersCount
+      ordersCount: data.ordersCount,
+      paymentMethods: {
+        create: Array.from(data.paymentMethods.entries()).map(([method, pmData]) => ({
+          paymentMethod: method,
+          amount: pmData.amount,
+          ordersCount: pmData.ordersCount
+        }))
+      }
     }));
 
-    if (riderCollections.length > 0) {
-      await prisma.dailyClosingRider.createMany({
-        data: riderCollections
-      });
+    if (riderCollectionsData.length > 0) {
+      for (const riderData of riderCollectionsData) {
+        await prisma.dailyClosingRider.create({
+          data: riderData
+        });
+      }
     }
 
     // Create payment method breakdowns
@@ -379,7 +442,8 @@ export const saveDailyClosing = async (req, res) => {
           include: {
             rider: {
               select: { name: true }
-            }
+            },
+            paymentMethods: true
           }
         },
         paymentMethods: true
@@ -413,7 +477,8 @@ export const getAllDailyClosings = async (req, res) => {
           include: {
             rider: {
               select: { name: true }
-            }
+            },
+            paymentMethods: true
           }
         },
         paymentMethods: true
@@ -435,8 +500,14 @@ export const getAllDailyClosings = async (req, res) => {
       riderCollections: closing.riderCollections.map(rc => ({
         riderName: rc.rider?.name || 'Unknown',
         amount: parseFloat(rc.amount),
-        ordersCount: rc.ordersCount
+        ordersCount: rc.ordersCount,
+        paymentMethods: rc.paymentMethods.map(pm => ({
+          method: pm.paymentMethod,
+          amount: parseFloat(pm.amount),
+          ordersCount: pm.ordersCount
+        }))
       })),
+      enrouteAmount: parseFloat(closing.enrouteAmount || 0),
       paymentMethods: closing.paymentMethods.map(pm => ({
         method: pm.paymentMethod,
         amount: parseFloat(pm.amount),
