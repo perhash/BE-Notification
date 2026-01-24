@@ -183,20 +183,20 @@ export const getDailyClosingSummary = async (req, res) => {
       success: true,
       data: {
         date: todayPktDate,
-        customerPayable,
-        customerReceivable,
-        totalPaidAmount,
-        totalCurrentOrderAmount,
-        walkInAmount,
-        clearBillAmount,
-        enrouteAmount,
-        balanceClearedToday,
-        totalBottles,
-        totalOrders,
-        riderCollections,
-        paymentMethods,
+        customerPayable: Number(customerPayable) || 0,
+        customerReceivable: Number(customerReceivable) || 0,
+        totalPaidAmount: Number(totalPaidAmount) || 0,
+        totalCurrentOrderAmount: Number(totalCurrentOrderAmount) || 0,
+        walkInAmount: Number(walkInAmount) || 0,
+        clearBillAmount: Number(clearBillAmount) || 0,
+        enrouteAmount: Number(enrouteAmount) || 0,
+        balanceClearedToday: Number(balanceClearedToday) || 0,
+        totalBottles: Number(totalBottles) || 0,
+        totalOrders: Number(totalOrders) || 0,
+        riderCollections: Array.isArray(riderCollections) ? riderCollections : [],
+        paymentMethods: Array.isArray(paymentMethods) ? paymentMethods : [],
         canClose: inProgressOrders === 0,
-        inProgressOrdersCount: inProgressOrders,
+        inProgressOrdersCount: Number(inProgressOrders) || 0,
         alreadyExists: !!existingClosing
       }
     });
@@ -496,30 +496,30 @@ export const getAllDailyClosings = async (req, res) => {
     const formattedClosings = dailyClosings.map(closing => ({
       id: closing.id,
       date: formatPktDate(closing.date),
-      customerPayable: parseFloat(closing.customerPayable),
-      customerReceivable: parseFloat(closing.customerReceivable),
-      totalPaidAmount: parseFloat(closing.totalPaidAmount),
-      totalCurrentOrderAmount: parseFloat(closing.totalCurrentOrderAmount),
-      walkInAmount: parseFloat(closing.walkInAmount),
-      clearBillAmount: parseFloat(closing.clearBillAmount),
-      balanceClearedToday: parseFloat(closing.balanceClearedToday),
-      totalBottles: closing.totalBottles,
-      totalOrders: closing.totalOrders,
-      riderCollections: closing.riderCollections.map(rc => ({
+      customerPayable: parseFloat(closing.customerPayable) || 0,
+      customerReceivable: parseFloat(closing.customerReceivable) || 0,
+      totalPaidAmount: parseFloat(closing.totalPaidAmount) || 0,
+      totalCurrentOrderAmount: parseFloat(closing.totalCurrentOrderAmount) || 0,
+      walkInAmount: parseFloat(closing.walkInAmount) || 0,
+      clearBillAmount: parseFloat(closing.clearBillAmount) || 0,
+      enrouteAmount: parseFloat(closing.enrouteAmount) || 0,
+      balanceClearedToday: parseFloat(closing.balanceClearedToday) || 0,
+      totalBottles: Number(closing.totalBottles) || 0,
+      totalOrders: Number(closing.totalOrders) || 0,
+      riderCollections: (closing.riderCollections || []).map(rc => ({
         riderName: rc.rider?.name || 'Unknown',
-        amount: parseFloat(rc.amount),
-        ordersCount: rc.ordersCount,
-        paymentMethods: rc.paymentMethods.map(pm => ({
+        amount: parseFloat(rc.amount) || 0,
+        ordersCount: Number(rc.ordersCount) || 0,
+        paymentMethods: (rc.paymentMethods || []).map(pm => ({
           method: pm.paymentMethod,
-          amount: parseFloat(pm.amount),
-          ordersCount: pm.ordersCount
+          amount: parseFloat(pm.amount) || 0,
+          ordersCount: Number(pm.ordersCount) || 0
         }))
       })),
-      enrouteAmount: parseFloat(closing.enrouteAmount || 0),
-      paymentMethods: closing.paymentMethods.map(pm => ({
+      paymentMethods: (closing.paymentMethods || []).map(pm => ({
         method: pm.paymentMethod,
-        amount: parseFloat(pm.amount),
-        ordersCount: pm.ordersCount
+        amount: parseFloat(pm.amount) || 0,
+        ordersCount: Number(pm.ordersCount) || 0
       })),
       createdAt: closing.createdAt,
       updatedAt: closing.updatedAt
