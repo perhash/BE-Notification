@@ -360,46 +360,50 @@ export const saveDailyClosing = async (req, res) => {
       }
     });
 
-    // Create or update the daily closing
+    // Create or update the daily closing (use findUnique + create/update to avoid upsert quirks)
     const closingDate = new Date(todayPktDate + 'T00:00:00Z');
-    
-    const dailyClosing = await prisma.dailyClosing.upsert({
-      where: {
-        date: closingDate
-      },
-      update: {
-        customerPayable,
-        customerReceivable,
-        totalPaidAmount,
-        totalCurrentOrderAmount,
-        walkInAmount,
-        clearBillAmount,
-        enrouteAmount,
-        balanceClearedToday,
-        totalBottles,
-        totalOrders,
-        // Delete old rider collections and payment methods
-        riderCollections: {
-          deleteMany: {}
-        },
-        paymentMethods: {
-          deleteMany: {}
-        }
-      },
-      create: {
-        date: closingDate,
-        customerPayable,
-        customerReceivable,
-        totalPaidAmount,
-        totalCurrentOrderAmount,
-        walkInAmount,
-        clearBillAmount,
-        enrouteAmount,
-        balanceClearedToday,
-        totalBottles,
-        totalOrders
-      }
+    const createData = {
+      date: closingDate,
+      customerPayable,
+      customerReceivable,
+      totalPaidAmount,
+      totalCurrentOrderAmount,
+      walkInAmount,
+      clearBillAmount,
+      enrouteAmount,
+      balanceClearedToday,
+      totalBottles,
+      totalOrders
+    };
+
+    let dailyClosing;
+    const existing = await prisma.dailyClosing.findUnique({
+      where: { date: closingDate }
     });
+
+    if (existing) {
+      await prisma.dailyClosingRider.deleteMany({ where: { dailyClosingId: existing.id } });
+      await prisma.dailyClosingPayment.deleteMany({ where: { dailyClosingId: existing.id } });
+      dailyClosing = await prisma.dailyClosing.update({
+        where: { id: existing.id },
+        data: {
+          customerPayable: createData.customerPayable,
+          customerReceivable: createData.customerReceivable,
+          totalPaidAmount: createData.totalPaidAmount,
+          totalCurrentOrderAmount: createData.totalCurrentOrderAmount,
+          walkInAmount: createData.walkInAmount,
+          clearBillAmount: createData.clearBillAmount,
+          enrouteAmount: createData.enrouteAmount,
+          balanceClearedToday: createData.balanceClearedToday,
+          totalBottles: createData.totalBottles,
+          totalOrders: createData.totalOrders
+        }
+      });
+    } else {
+      dailyClosing = await prisma.dailyClosing.create({
+        data: createData
+      });
+    }
 
     // Create rider collections with payment method breakdowns
     const riderCollectionsData = Array.from(riderCollectionsMap.entries()).map(([riderId, data]) => ({
