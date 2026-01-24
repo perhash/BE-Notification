@@ -79,6 +79,10 @@ export const getDailyClosingSummary = async (req, res) => {
       .filter(order => order.orderType === 'CLEARBILL')
       .reduce((sum, order) => sum + parseFloat(order.paidAmount), 0);
 
+    const enrouteAmount = todayOrders
+      .filter(order => order.orderType === 'ENROUTE')
+      .reduce((sum, order) => sum + parseFloat(order.paidAmount), 0);
+
     const balanceClearedToday = totalCurrentOrderAmount - totalPaidAmount;
 
     const totalBottles = todayOrders.reduce(
