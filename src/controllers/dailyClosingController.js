@@ -150,10 +150,10 @@ export const getDailyClosingSummary = async (req, res) => {
       }))
     }));
 
-    // Group by payment method
+    // Group by payment method (use CASH fallback for null/undefined)
     const paymentMethodsMap = new Map();
     todayOrders.forEach(order => {
-      const method = order.paymentMethod;
+      const method = order.paymentMethod || 'CASH';
       if (paymentMethodsMap.has(method)) {
         const existing = paymentMethodsMap.get(method);
         existing.amount += parseFloat(order.paidAmount);
@@ -344,10 +344,10 @@ export const saveDailyClosing = async (req, res) => {
       }
     });
 
-    // Group by payment method
+    // Group by payment method (use CASH fallback for null/undefined)
     const paymentMethodsMap = new Map();
     todayOrders.forEach(order => {
-      const method = order.paymentMethod;
+      const method = order.paymentMethod || 'CASH';
       if (paymentMethodsMap.has(method)) {
         const existing = paymentMethodsMap.get(method);
         existing.amount += parseFloat(order.paidAmount);
